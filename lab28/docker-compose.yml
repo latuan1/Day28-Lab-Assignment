@@ -1,5 +1,4 @@
 # docker-compose.yml
-version: "3.9"
 
 services:
   # ── Kafka Stack ──────────────────────────────────────────
@@ -18,21 +17,39 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   # ── Prefect ───────────────────────────────────────────────
+  prefect-postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: prefect
+      POSTGRES_DB: prefect
+    volumes:
+      - prefect_postgres_data:/var/lib/postgresql/data
+
   prefect-orion:
     image: prefecthq/prefect:2.14.0-python3.10
-    command: prefect orion start --host 0.0.0.0
+    command: >
+      sh -c "until python -c \"import socket; s=socket.create_connection(('prefect-postgres', 5432), 2); s.close()\" 2>/dev/null; do sleep 2; done &&
+             prefect server start --host 0.0.0.0"
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:prefect@prefect-postgres:5432/prefect
     ports:
       - "4200:4200"
-    volumes:
-      - prefect_data:/root/.prefect
+    depends_on: [prefect-postgres]
 
   prefect-worker:
-    image: prefecthq/prefect:2.14.0-python3.10
-    command: prefect worker start -p docker -n lab28-worker
+    build: ./prefect/flows
+    command: >
+      sh -c "until python -c \"import urllib.request; urllib.request.urlopen('http://prefect-orion:4200/api/health', timeout=2)\" 2>/dev/null; do sleep 2; done &&
+             prefect work-pool create --type process docker || true &&
+             prefect worker start -p docker -n lab28-worker"
     environment:
       PREFECT_API_URL: http://prefect-orion:4200/api
     volumes:
@@ -71,17 +88,22 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
 
+  mock-kaggle:
+    build: ./mock-kaggle
+    ports:
+      - "8001:8001"
+
   # ── API Gateway ───────────────────────────────────────────
   api-gateway:
     build: ./api-gateway
     ports:
       - "8000:8000"
     environment:
-      VLLM_URL: ${VLLM_NGROK_URL}
+      VLLM_URL: ${VLLM_NGROK_URL:-http://mock-kaggle:8001}
       QDRANT_URL: http://qdrant:6333
       REDIS_URL: redis://redis:6379
-    depends_on: [qdrant, redis]
+    depends_on: [qdrant, redis, mock-kaggle]
 
 volumes:
-  prefect_data:
+  prefect_postgres_data:
   qdrant_data:

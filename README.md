@@ -31,6 +31,71 @@ Kaggle (GPU T4/P100):
 
 ## Quick Start
 
+### Mock Kaggle mode for local submission
+
+This repo includes a local `mock-kaggle` service so you can complete the lab without a live Kaggle GPU or tunnel. It exposes the same endpoints used by the platform:
+
+- `GET http://localhost:8001/health`
+- `POST http://localhost:8001/v1/chat/completions`
+- `POST http://localhost:8001/embed`
+
+Run everything from this project root in PowerShell:
+
+```powershell
+python -m pip install -r requirements.txt
+docker compose up -d --build
+docker compose ps
+```
+
+Seed and process data:
+
+```powershell
+python scripts/01_ingest_to_kafka.py
+docker compose exec prefect-worker python /opt/prefect/flows/kafka_to_delta.py --run-once
+python scripts/03_delta_to_feast.py
+$env:EMBED_NGROK_URL="http://localhost:8001"
+python scripts/05_embed_to_qdrant.py
+```
+
+Verify the API path:
+
+```powershell
+curl http://localhost:8000/health
+curl http://localhost:8001/health
+curl -X POST http://localhost:8000/api/v1/chat -H "Content-Type: application/json" -d "{\"query\":\"What is platform engineering?\",\"embedding\":[0.1]}"
+```
+
+Run the required checks:
+
+```powershell
+pytest smoke-tests/ -v
+python scripts/production_readiness_check.py
+```
+
+Capture screenshots for Prefect (`http://localhost:4200`), Grafana (`http://localhost:3000`, `admin/admin`), the API curl result, smoke tests, and production readiness output.
+
+For full-points submission, also include:
+
+- `SUBMISSION_CHECKLIST.md` for the exact validation and packaging sequence.
+- `SUBMISSION_ANSWERS.md` for the five required architecture answers.
+- `screenshots/prefect_ui.png`, `screenshots/api_gateway.png`, `screenshots/grafana_dashboard.png`, `smoke_tests_results.png`, and `production_readiness.png`.
+
+Focused Docker log checks:
+
+```powershell
+docker compose ps -a
+docker compose logs --tail=120 api-gateway
+docker compose logs --tail=120 prefect-orion prefect-worker
+docker compose logs --tail=120 kafka prometheus
+docker compose logs --tail=120 qdrant grafana
+```
+
+Classify findings before changing anything:
+
+- Blocking: exited services, failed imports, missing dependencies, or an API that cannot respond.
+- Test-impacting: missing `documents` collection, missing `data.raw` topic, or empty `feature:*` Redis keys.
+- Noise: expected Grafana auth redirects, dashboard polling, startup banners, and one-off retries.
+
 ### 1. Khởi động Local Stack
 
 ```bash

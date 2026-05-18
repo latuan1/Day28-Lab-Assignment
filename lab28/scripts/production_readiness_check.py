@@ -49,8 +49,13 @@ check("Redis reachable", lambda:
 
 print("\n=== KAFKA ===")
 def check_kafka_topics():
+    container = subprocess.run(
+        ["docker", "compose", "ps", "-q", "kafka"],
+        capture_output=True, text=True
+    ).stdout.strip()
+    assert container, "Kafka container is not running"
     result = subprocess.run(
-        ["docker", "exec", "lab28-kafka-1", "kafka-topics", "--list",
+        ["docker", "exec", container, "kafka-topics", "--list",
          "--bootstrap-server", "localhost:9092"],
         capture_output=True, text=True
     )

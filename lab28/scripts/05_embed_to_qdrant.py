@@ -4,7 +4,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import os
 
-EMBED_URL = os.environ["EMBED_NGROK_URL"]
+EMBED_URL = os.environ.get("EMBED_NGROK_URL", "http://localhost:8001")
 qdrant = QdrantClient(host="localhost", port=6333)
 
 # Tạo collection

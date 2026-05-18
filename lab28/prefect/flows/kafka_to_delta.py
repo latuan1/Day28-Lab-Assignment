@@ -1,6 +1,7 @@
 # prefect/flows/kafka_to_delta.py
 from prefect import flow, task
 from kafka import KafkaConsumer
+import argparse
 import json, os
 import pandas as pd
 from datetime import datetime
@@ -10,7 +11,7 @@ def consume_and_process():
     """Consume data from Kafka topic"""
     consumer = KafkaConsumer(
         "data.raw",
-        bootstrap_servers="kafka:9092",
+        bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092"),
         auto_offset_reset="earliest",
         consumer_timeout_ms=5000,
         value_deserializer=lambda m: json.loads(m.decode())
@@ -31,20 +32,27 @@ def save_to_delta(records):
     
     df = pd.DataFrame(records)
     # Giả lập Delta Lake bằng parquet (local volume)
-    path = "/opt/delta-lake/raw"
+    path = os.environ.get("DELTA_LAKE_RAW_PATH", "/opt/delta-lake/raw")
     os.makedirs(path, exist_ok=True)
     df.to_parquet(f"{path}/batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet")
     print(f"Saved {len(df)} records to Delta Lake")
 
-@flow(name="Kafka to Delta Pipeline", schedule="* */5 * * *")
+@flow(name="Kafka to Delta Pipeline")
 def kafka_to_delta_flow():
     """Main flow: consume from Kafka and save to Delta Lake"""
     records = consume_and_process()
     save_to_delta(records)
 
 if __name__ == "__main__":
-    # Deploy flow to Prefect Orion
-    kafka_to_delta_flow.deploy(
-        name="kafka-to-delta",
-        work_queue_name="lab28-worker"
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-once", action="store_true", help="Run the flow immediately without deployment")
+    args = parser.parse_args()
+
+    if args.run_once:
+        kafka_to_delta_flow()
+    else:
+        # Serve a scheduled deployment for the Prefect UI demo.
+        kafka_to_delta_flow.serve(
+            name="kafka-to-delta",
+            cron="* */5 * * *",
+        )
